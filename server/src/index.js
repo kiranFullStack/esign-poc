@@ -9,8 +9,11 @@ const session = require('express-session')
 const bcrypt = require('bcrypt')
 const saltRounds = 10
 
+const jwt = require('jsonwebtoken')
+
 require('dotenv').config()
 const port = process.env.PORT
+const jwtSecret = process.env.JWTSECRET
 
 app.use(express.json())
 app.use(
@@ -39,7 +42,7 @@ const db = mysql.createConnection({
   user: 'root',
   host: 'localhost',
   password: 'password',
-  database: 'LoginSystem',
+  database: 'login',
 })
 
 app.post('/register', (req, res) => {
@@ -55,10 +58,33 @@ app.post('/register', (req, res) => {
       'INSERT INTO users (username, password) VALUES (?,?)',
       [username, hash],
       (err, result) => {
-        console.log(err)
+        if (err) {
+          console.log(err)
+        }
+        res.send(result)
       }
     )
   })
+})
+
+const verifyJWT = (req, res, next) => {
+  const token = req.headers['x-access-token']
+  if (!token) {
+    res.send('We need token yo')
+  } else {
+    jwt.verify(token, jwtSecret, (err, decoded) => {
+      if (err) {
+        res.json({ auth: false, message: 'failed to auth' })
+      } else {
+        req.userId = decoded.id
+        next()
+      }
+    })
+  }
+}
+
+app.get('/isUserAuth', verifyJWT, (req, res) => {
+  res.send('Authenticated Yoooo ! ')
 })
 
 app.get('/login', (req, res) => {
@@ -85,10 +111,14 @@ app.post('/login', (req, res) => {
         bcrypt.compare(password, result[0].password, (error, response) => {
           if (response) {
             req.session.user = result
-            console.log(req.session.user)
-            res.send(result)
+            const id = result[0].id
+            const token = jwt.sign({ id }, jwtSecret, {
+              expiresIn: 300,
+            })
+            req.session.user = result
+            res.json({ auth: true, token: token, result: result })
           } else {
-            res.send({ message: 'Wrong username/password combination!' })
+            res.json({ auth: false, message: 'not logged in yo' })
           }
         })
       } else {
